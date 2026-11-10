@@ -1,0 +1,7 @@
+.env
+.kite_session.json
+data/
+reports/
+__pycache__/
+.pytest_cache/
+*.pyc
