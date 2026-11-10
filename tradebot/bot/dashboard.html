@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tradebot</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --line: #dfe2e7; --text: #16191d; --muted: #5d6673;
+    --up: #0b7a43; --down: #c0291f; --accent: #1f5fbf; --warn-bg: #fff4d6; --warn-text: #6b4a00;
+    --danger: #b3231a; --danger-text: #ffffff; --chip: #e8ebf0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #1a1e24; --line: #2c323b; --text: #e7eaee; --muted: #98a2b0;
+      --up: #3fc380; --down: #ff6b5e; --accent: #6ea8ff; --warn-bg: #3a2f10; --warn-text: #ffd97a;
+      --danger: #d6382d; --danger-text: #ffffff; --chip: #262c35;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+  h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  .chip { padding: 2px 9px; border-radius: 999px; background: var(--chip); font-size: 12px; font-weight: 600; }
+  .chip.live { background: var(--danger); color: var(--danger-text); }
+  .chip.paused { background: var(--warn-bg); color: var(--warn-text); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+  button { font: inherit; font-weight: 600; padding: 7px 14px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.kill { background: var(--danger); border-color: var(--danger); color: var(--danger-text); }
+  .banner { display: none; padding: 9px 12px; border-radius: 6px; margin-bottom: 14px;
+            background: var(--warn-bg); color: var(--warn-text); font-weight: 500; }
+  .banner.show { display: block; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .kpi .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi .s { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .meter { height: 6px; border-radius: 3px; background: var(--chip); margin-top: 8px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--down); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+  section.card { margin-bottom: 10px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 5px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; font-weight: 600; color: var(--muted); }
+  th:first-child, td:first-child { text-align: left; padding-left: 0; }
+  tr:last-child td { border-bottom: 0; }
+  .empty { color: var(--muted); padding: 6px 0; }
+  .log { max-height: 320px; overflow-y: auto; font-size: 13px; }
+  .log div { padding: 3px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .log time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .log .error { color: var(--down); } .log .warn { color: var(--warn-text); }
+  .tall { max-height: 320px; overflow-y: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tradebot</h1>
+    <span id="mode" class="chip">...</span>
+    <span id="status" class="chip">...</span>
+    <span id="strategy" class="meta"></span>
+    <span class="spacer"></span>
+    <span id="clock" class="meta"></span>
+    <button id="toggle" type="button">Pause</button>
+    <button id="kill" type="button" class="kill">Close everything</button>
+  </header>
+  <div id="banner" class="banner" role="status"></div>
+
+  <div class="kpis">
+    <div class="card kpi"><h2>Today</h2><div id="k-day" class="v">-</div><div id="k-day-s" class="s"></div></div>
+    <div class="card kpi"><h2>Open positions</h2><div id="k-open" class="v">-</div><div id="k-open-s" class="s"></div></div>
+    <div class="card kpi"><h2>Trades today</h2><div id="k-trades" class="v">-</div><div id="k-trades-s" class="s"></div></div>
+    <div class="card kpi"><h2>Daily loss limit</h2><div id="k-limit" class="v">-</div>
+      <div class="meter" aria-hidden="true"><i id="k-meter"></i></div><div id="k-limit-s" class="s"></div></div>
+    <div class="card kpi"><h2>All time</h2><div id="k-all" class="v">-</div><div id="k-all-s" class="s"></div></div>
+  </div>
+
+  <section class="card"><h2>Open positions</h2><div class="scroll" id="positions"></div></section>
+  <section class="card"><h2>Today's closed trades</h2><div class="scroll tall" id="trades"></div></section>
+  <div class="grid2">
+    <section class="card"><h2>Recent days</h2><div class="scroll tall" id="daily"></div></section>
+    <section class="card"><h2>Log</h2><div class="log" id="log"></div></section>
+  </div>
+</div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = id => document.getElementById(id);
+const inr = (x, sign) => (sign ? (x < 0 ? "-" : "+") : (x < 0 ? "-" : "")) + "Rs " +
+  Math.abs(x).toLocaleString("en-IN", {maximumFractionDigits: 0});
+const px = x => Number(x).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const hm = s => String(s || "").slice(11, 16);
+const REASONS = {stop: "Stop", target: "Target", square_off: "Square-off", signal_exit: "Signal exit",
+                 daily_loss: "Loss limit", manual: "Closed by you", data_end: "Data ended"};
+let paused = false;
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+function money(td, x) { td.textContent = inr(x, true); td.className = x < 0 ? "down" : "up"; return td; }
+function table(host, heads, rows, emptyText) {
+  host.replaceChildren();
+  if (!rows.length) { host.append(el("div", emptyText, "empty")); return; }
+  const t = el("table"), hr = el("tr");
+  heads.forEach(h => hr.append(el("th", h)));
+  t.append(hr);
+  rows.forEach(cells => {
+    const tr = el("tr");
+    cells.forEach(c => tr.append(c instanceof Node ? c : el("td", c)));
+    t.append(tr);
+  });
+  host.append(t);
+}
+
+function render(s) {
+  paused = s.status === "paused";
+  $("mode").textContent = s.mode === "live" ? "LIVE: REAL MONEY" : s.mode === "replay" ? "REPLAY" : "PAPER";
+  $("mode").className = "chip" + (s.mode === "live" ? " live" : "");
+  $("status").textContent = s.status[0].toUpperCase() + s.status.slice(1);
+  $("status").className = "chip" + (paused ? " paused" : "");
+  $("strategy").textContent = s.strategy;
+  $("clock").textContent = s.clock ? "Market data: " + s.clock.slice(0, 16) : "No market data yet";
+  $("toggle").textContent = paused ? "Resume" : "Pause";
+  $("toggle").disabled = s.status === "stopped";
+  $("banner").textContent = s.note;
+  $("banner").className = "banner" + (s.note ? " show" : "");
+
+  const day = s.day_pnl + s.unrealised;
+  $("k-day").textContent = inr(day, true);
+  $("k-day").className = "v " + (day < 0 ? "down" : "up");
+  $("k-day-s").textContent = "Closed " + inr(s.day_pnl, true) + ", open " + inr(s.unrealised, true);
+  $("k-open").textContent = s.positions.length + " / " + s.max_open_positions;
+  $("k-open-s").textContent = "Capital " + inr(s.capital);
+  $("k-trades").textContent = s.trades_today + " / " + s.max_trades_per_day;
+  const wins = s.trades.filter(t => t.net > 0).length;
+  $("k-trades-s").textContent = s.trades.length ? wins + " of " + s.trades.length + " closed in profit" : "None closed yet";
+  const used = Math.max(0, -day) / s.daily_loss_limit;
+  $("k-limit").textContent = Math.min(100, Math.round(used * 100)) + "% used";
+  $("k-meter").style.width = Math.min(100, used * 100) + "%";
+  $("k-limit-s").textContent = "Stops trading at " + inr(-s.daily_loss_limit);
+  $("k-all").textContent = inr(s.totals.net, true);
+  $("k-all").className = "v " + (s.totals.net < 0 ? "down" : "up");
+  $("k-all-s").textContent = s.totals.trades + " trades, " +
+    (s.totals.trades ? Math.round(100 * s.totals.wins / s.totals.trades) : 0) + "% winners";
+
+  table($("positions"), ["Symbol", "Side", "Qty", "Entry", "Last", "Stop", "Target", "Since", "P&L"],
+    s.positions.map(p => [p.symbol, p.side > 0 ? "Long" : "Short", p.qty, px(p.entry_price), px(p.last),
+                          px(p.stop), px(p.target), hm(p.entry_time), money(el("td"), p.pnl)]),
+    "Nothing open.");
+  table($("trades"), ["Symbol", "Side", "Qty", "In", "Entry", "Out", "Exit", "Why", "Costs", "Net"],
+    s.trades.map(t => [t.symbol, t.side > 0 ? "Long" : "Short", t.qty, hm(t.entry_time), px(t.entry_price),
+                       hm(t.exit_time), px(t.exit_price), REASONS[t.reason] || t.reason,
+                       inr(t.charges), money(el("td"), t.net)]),
+    "No trades closed today.");
+  table($("daily"), ["Day", "Trades", "Net"],
+    s.daily.slice().reverse().map(d => [d.day, d.trades, money(el("td"), d.net)]), "No history yet.");
+
+  const log = $("log");
+  log.replaceChildren();
+  s.events.forEach(e => {
+    const row = el("div", undefined, e.level);
+    row.append(el("time", e.ts.slice(5, 16)), document.createTextNode(e.message));
+    log.append(row);
+  });
+}
+
+async function call(path, method) {
+  const r = await fetch(path, {method: method || "GET", headers: {"X-Token": TOKEN}});
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+async function refresh() {
+  try { render(await call("/api/state")); }
+  catch (e) {
+    $("banner").textContent = "The bot is not responding. If it was stopped, positions keep their " +
+      "stop-loss at the exchange in live mode, but nothing else is being managed.";
+    $("banner").className = "banner show";
+  }
+}
+$("toggle").addEventListener("click", async () => render(await call(paused ? "/api/resume" : "/api/pause", "POST")));
+$("kill").addEventListener("click", async () => {
+  if (confirm("Close every open position now and stop opening new ones?"))
+    render(await call("/api/kill", "POST"));
+});
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
