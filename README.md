@@ -15,7 +15,7 @@ Python 3.10 or newer.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q          # 84 tests, should all pass
+python -m pytest -q          # 91 tests, should all pass
 ```
 
 ## Try it in two minutes (no broker account needed)
@@ -54,13 +54,17 @@ python scripts/run_bot.py --strategy orb --replay data/sample
 
 # 2. Paper trading: live Zerodha prices, simulated orders. Nothing leaves the laptop.
 python scripts/kite_login.py
-python scripts/run_bot.py --strategy orb
+python scripts/run_bot.py
 
 # 3. Real money. Read "Before going live" first.
-python scripts/run_bot.py --strategy orb --live
+python scripts/run_bot.py --live
 ```
 
-Use the strategy and settings that passed walk-forward on real data, for example `--strategy orb --param or_minutes=30 --param rr=3`. Other options: `--symbols`, `--capital`, `--risk-pct`, `--no-short`, `--port`.
+**You do not pick the strategy.** Once a week the bot downloads two years of candles, puts all five strategies through the walk-forward test, and trades the one that made money on data it had never seen, with the settings that were best over the most recent months. The choice and the reasons are printed at start-up and saved in `data/selection.json`. Run `python scripts/choose_strategy.py --data data/nse` to see the test on its own.
+
+**If no strategy passes, the bot does not trade.** That is the system working: it means none of the five rules has an edge on recent data, and trading anyway would only pay costs. On the fake sample data this is always the outcome. A pass is a reason to paper trade, not a promise of profit.
+
+To override the choice, name a strategy: `--strategy orb --param or_minutes=30 --param rr=3`. Other options: `--choose-again`, `--symbols`, `--capital`, `--risk-pct`, `--no-short`, `--port`.
 
 **How it trades.** A few seconds after each 5-minute candle closes, the bot fetches it, asks the strategy for a signal, passes it through the risk manager and enters at the current price. Between candles it checks the price of open positions every 3 seconds for the target, and squares everything off at 15:15. Paper mode fills orders with the backtester's rules, and a replay reproduces the backtest trade for trade (`tests/test_bot_engine.py`).
 
@@ -74,7 +78,7 @@ Use the strategy and settings that passed walk-forward on real data, for example
 
 ### Before going live
 
-- Paper trade the strategy for at least two weeks and check it behaves like its backtest.
+- Paper trade for at least two weeks and check the bot behaves like its backtest.
 - Zerodha needs a whitelisted static IP for API orders. Set it in your Kite Connect app.
 - Add `LIVE_TRADING=yes` to `.env`. The bot then asks you to type a phrase at every start.
 - Start with small capital: `--capital 20000`.
@@ -149,11 +153,13 @@ tradebot/
   backtest.py      the simulation engine
   metrics.py       results summary
   walkforward.py   unseen-data validation and the verdict
+  select.py        picks the strategy to trade, or none
   strategies/      orb, vwap_pullback, ema_trend, rsi_reversion, supertrend
   bot/
     engine.py      strategy -> risk manager -> broker, same order of decisions as the backtester
     broker.py      PaperBroker (simulated fills) and KiteBroker (real orders)
     kite.py        Zerodha session and price polling
+    history.py     candle history download
     runner.py      replay loop and the live loop
     store.py       SQLite database
     dashboard.py   local web dashboard (dashboard.html is the page)
@@ -172,5 +178,6 @@ Subclass `Strategy` in `tradebot/strategies/`, implement `signals(df)`, set `par
 2. **Paper trading**: live Kite prices, simulated orders, same strategy and risk code. Built.
 3. **Live trading**: real orders with exchange-side stop losses, behind an explicit switch. Built, not yet run against Zerodha.
 4. **Dashboard and Telegram alerts**. Built.
-5. **Still to do**: a walk-forward run on real Zerodha candles, which decides which strategy (if any) gets paper traded.
-6. **Later**: strategy scoreboard, market-regime switching, F&O.
+5. **Automatic strategy choice**: weekly walk-forward test, trades the winner or nothing. Built.
+6. **Still to do**: the first run on real Zerodha candles, which shows whether any strategy passes.
+7. **Later**: market-regime switching, F&O.

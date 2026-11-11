@@ -85,8 +85,8 @@ def run_bot(*args, stdin="", env_extra=None):
 def test_live_mode_needs_the_env_switch_and_the_typed_phrase():
     out = run_bot("--strategy", "orb", "--live")
     assert out.returncode != 0 and "LIVE_TRADING=yes" in out.stderr
-    out = run_bot("--strategy", "orb", "--live", stdin="yes\n", env_extra={"LIVE_TRADING": "yes"})
-    assert out.returncode != 0 and "Not confirmed" in out.stderr
+    out = run_bot("--live", env_extra={"LIVE_TRADING": "yes"})       # switch on, but no Zerodha login
+    assert out.returncode != 0 and "KITE_API_KEY" in out.stderr
     out = run_bot("--strategy", "orb", "--live", "--replay", "x")
     assert out.returncode != 0 and "cannot be combined" in out.stderr
 
@@ -94,3 +94,24 @@ def test_live_mode_needs_the_env_switch_and_the_typed_phrase():
 def test_unknown_strategy_setting_is_refused():
     out = run_bot("--strategy", "orb", "--param", "nonsense=1", "--replay", "x")
     assert out.returncode != 0 and "Unknown setting" in out.stderr
+
+
+def test_live_start_needs_the_exact_phrase(capsys):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import run_bot as launcher
+    from tradebot.strategies import REGISTRY
+
+    strategy, risk = REGISTRY["orb"](), RiskConfig(capital=20_000)
+    assert not launcher.confirm_live(strategy, risk, ask=lambda prompt: "yes")
+    assert not launcher.confirm_live(strategy, risk, ask=lambda prompt: "trade real money")
+    assert launcher.confirm_live(strategy, risk, ask=lambda prompt: " TRADE REAL MONEY ")
+    shown = capsys.readouterr().out
+    assert "REAL MONEY" in shown and "Rs 20,000" in shown and "about Rs 100" in shown
+
+
+def test_auto_is_the_default_and_refuses_to_trade_fake_data(tmp_path):
+    from tradebot.data import make_synthetic, save_folder
+    save_folder(make_synthetic(["AAA", "BBB"], days=200, seed=4), tmp_path)
+    out = run_bot("--replay", str(tmp_path), "--no-browser")
+    assert out.returncode != 0
+    assert "CHOSEN: nothing" in out.stdout and "Nothing to trade" in out.stderr

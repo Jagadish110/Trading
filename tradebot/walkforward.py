@@ -37,6 +37,9 @@ class WalkForwardResult:
     best_in_sample_params: dict
     folds: pd.DataFrame
     capital: float
+    # Settings to trade from tomorrow: the best on the most recent training
+    # window. None if nothing made money there.
+    next_params: dict | None = None
 
 
 def _score(daily: pd.Series, trades: pd.DataFrame, capital: float, min_trades: int) -> float:
@@ -92,6 +95,11 @@ def walk_forward(
         })
         start += test_days
 
+    recent = days[-train_days:]
+    recent_scores = [_score(*slice_result(r.daily, r.trades, recent), capital, min_trades) for r in runs]
+    newest = max(range(len(runs)), key=recent_scores.__getitem__)
+    next_params = dict(runs[newest].params) if recent_scores[newest] > 0 else None
+
     daily = pd.concat(oos_daily)
     trades = pd.concat(oos_trades, ignore_index=True)
     full = [float(r.daily.sum()) for r in runs]
@@ -105,6 +113,7 @@ def walk_forward(
         best_in_sample_params=combos[top],
         folds=pd.DataFrame(folds),
         capital=capital,
+        next_params=next_params,
     )
 
 
