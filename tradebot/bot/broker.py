@@ -221,5 +221,5 @@ class KiteBroker(Broker):
         out = []
         for sym in sorted(set(held) | set(mine)):
             if held.get(sym, 0) != mine.get(sym, 0):
-                out.append(f"{sym}: bot expects {mine.get(sym, 0)} shares, Zerodha shows {held.get(sym, 0)}")
+                out.append(f"{sym}: bot expects {mine.get(sym, 0)} shares, the broker shows {held.get(sym, 0)}")
         return out

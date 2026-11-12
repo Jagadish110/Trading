@@ -125,7 +125,7 @@ def test_mismatch_with_zerodha_is_reported():
     fill = broker.enter("SBIN", 1, 50, 100.0, 98.0)
     pos = Position("SBIN", 1, 50, None, 100.0, 98.0, 105.0, fill.stop_order_id)
     assert broker.problems([pos]) == []
-    assert broker.problems([]) == ["SBIN: bot expects 0 shares, Zerodha shows 50"]
+    assert broker.problems([]) == ["SBIN: bot expects 0 shares, the broker shows 50"]
 
 
 # -- engine on top of the live broker ----------------------------------

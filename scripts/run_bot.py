@@ -51,9 +51,9 @@ def parse_params(pairs: list[str], defaults: dict) -> dict:
     return out
 
 
-def confirm_live(strategy, risk, ask=input) -> bool:
+def confirm_live(strategy, risk, ask=input, broker: str = "zerodha") -> bool:
     """Show what is about to happen and make the user type the phrase."""
-    print(f"\nYou are about to trade REAL MONEY at Zerodha.\n"
+    print(f"\nYou are about to trade REAL MONEY at {broker.capitalize()}.\n"
           f"  strategy       {strategy!r}\n"
           f"  capital        Rs {risk.capital:,.0f}\n"
           f"  risk per trade {risk.risk_per_trade_pct}%  (about Rs {risk.capital * risk.risk_per_trade_pct / 100:,.0f})\n"
@@ -105,7 +105,9 @@ def main() -> None:
     ap.add_argument("--no-short", action="store_true", help="long trades only")
     ap.add_argument("--assist", action="store_true",
                     help="only tell me when to buy and sell; I place the orders myself")
-    ap.add_argument("--live", action="store_true", help="place REAL orders at Zerodha")
+    ap.add_argument("--broker", choices=["zerodha", "groww"], default=None,
+                    help="default: BROKER in .env, else zerodha")
+    ap.add_argument("--live", action="store_true", help="place REAL orders at your broker")
     ap.add_argument("--replay", metavar="FOLDER", help="run saved candles instead of live prices")
     ap.add_argument("--pace", type=float, default=0.05, help="replay: seconds per candle (0 = flat out)")
     ap.add_argument("--port", type=int, default=8765, help="dashboard port")
@@ -124,6 +126,9 @@ def main() -> None:
     mode = "replay" if args.replay else "live" if args.live else "assist" if args.assist else "paper"
     symbols = args.symbols or DEFAULT_WATCHLIST
     kite = data = None
+    broker_name = (args.broker or os.environ.get("BROKER") or "zerodha").lower()
+    if broker_name not in ("zerodha", "groww"):
+        sys.exit(f"BROKER in .env must be zerodha or groww, not '{broker_name}'.")
     if mode == "live" and os.environ.get("LIVE_TRADING", "").lower() != "yes":
         sys.exit("Live trading is switched off. To allow it, add LIVE_TRADING=yes to .env.")
     if args.strategy == "auto" and args.param:
@@ -137,7 +142,11 @@ def main() -> None:
     if mode != "replay":
         from tradebot.bot.kite import KiteFeed, connect, ist_now
         try:
-            kite = connect(_bootstrap.require_env("KITE_API_KEY"), _bootstrap.SESSION_FILE)
+            if broker_name == "groww":
+                from tradebot.bot import groww
+                kite = groww.connect(os.environ)
+            else:
+                kite = connect(_bootstrap.require_env("KITE_API_KEY"), _bootstrap.SESSION_FILE)
         except RuntimeError as e:
             sys.exit(str(e))
     else:
@@ -148,7 +157,8 @@ def main() -> None:
         try:
             pick, data = auto_choose(args, mode, kite, symbols, data, risk, costs)
         except ValueError as e:
-            sys.exit(f"Cannot choose a strategy: {e}")
+            sys.exit(f"Cannot choose a strategy: {e}\n(The test needs about 8 months of 5-minute candles. "
+                     "If your broker's API gives less, name a strategy with --strategy.)")
         print("\n" + pick.report() + "\n")
         if pick.strategy is None:
             sys.exit("Nothing to trade. Run again in a week, or after the strategies are reworked.")
@@ -157,7 +167,7 @@ def main() -> None:
     else:
         strategy = manual
 
-    if mode == "live" and not confirm_live(strategy, risk):
+    if mode == "live" and not confirm_live(strategy, risk, broker=broker_name):
         sys.exit("Not confirmed. Nothing was started.")
 
     if mode == "replay":
@@ -187,7 +197,8 @@ def main() -> None:
 
     stopping = threading.Event()
     dash = Dashboard(engine, port=args.port).start()
-    print(f"\nMode: {mode.upper()}   Strategy: {strategy!r}")
+    print(f"\nMode: {mode.upper()}   Strategy: {strategy!r}"
+          + ("" if mode == "replay" else f"   Broker: {broker_name}"))
     print(f"Dashboard: {dash.url}")
     print(f"Telegram alerts: {'on' if alerts.enabled else 'off'}")
     print("Press Ctrl+C to stop.\n")

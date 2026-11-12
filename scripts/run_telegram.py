@@ -39,7 +39,16 @@ class Intraday:
     def start(self) -> tuple[bool, str]:
         if self.running():
             return True, "The intraday adviser is already running."
-        if not os.environ.get("KITE_API_KEY") or not _bootstrap.SESSION_FILE.exists():
+        broker = (os.environ.get("BROKER") or "zerodha").lower()
+        if broker == "groww":
+            if not os.environ.get("GROWW_API_KEY"):
+                return False, (
+                    "Intraday needs live prices from Groww's Trade API (a paid subscription; check the "
+                    "current price at groww.in/trade-api).\n\n"
+                    "To switch it on, put GROWW_API_KEY and GROWW_TOTP_SECRET in .env, run "
+                    "pip install growwapi, then tap Intraday equity again.\n\n"
+                    "Swing trading works without any of this.")
+        elif not os.environ.get("KITE_API_KEY") or not _bootstrap.SESSION_FILE.exists():
             return False, (
                 "Intraday needs live prices, and those need Zerodha's paid Kite Connect API plan "
                 "(check the current price at developers.kite.trade).\n\n"

@@ -127,7 +127,7 @@ class TradingEngine:
                 self.log("info", f"{row['symbol']}: resumed open position from the database")
             issues = self.broker.problems(list(self.positions.values()))
             if issues:
-                self.pause("Positions at Zerodha do not match the bot's records: " + "; ".join(issues),
+                self.pause("Positions at the broker do not match the bot's records: " + "; ".join(issues),
                            alert=True)
 
     # -- controls --------------------------------------------------------

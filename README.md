@@ -15,7 +15,7 @@ Python 3.10 or newer.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q          # 122 tests, should all pass
+python -m pytest -q          # 130 tests, should all pass
 ```
 
 ## Try it in two minutes (no broker account needed)
@@ -105,6 +105,22 @@ To override the choice, name a strategy: `--strategy orb --param or_minutes=30 -
 **Database.** Trades, open positions and the log are kept in `data/tradebot.db` (SQLite). If the bot is restarted the same day it picks up its open positions and the day's counts.
 
 **Telegram alerts.** Optional. Message @BotFather on Telegram, send `/newbot`, and copy the token. Send your new bot any message, open `https://api.telegram.org/bot<token>/getUpdates` and copy the `chat.id` number. Put both in `.env` as `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. You get a message on every entry and exit, on any pause or error, and a summary at the end of the day.
+
+### Using a Groww account
+
+The bot can use Groww's Trade API in place of Zerodha's, for live prices, paper trading, assist mode and real orders.
+
+1. Subscribe to the Trade API in your Groww account (groww.in/trade-api; it is a paid add-on) and create an API key. Choose the TOTP type if offered: the bot can then log in by itself every day.
+2. `pip install growwapi`
+3. In `.env` set `BROKER=groww`, `GROWW_API_KEY`, and `GROWW_TOTP_SECRET` (or `GROWW_API_SECRET`, which needs approving on Groww's site each morning).
+4. Run the same commands as above. No `kite_login.py` step is needed.
+
+Start with `python scripts/run_bot.py --assist` or paper mode. Read these first:
+
+- The order calls match `growwapi` 1.5.0, but the field names in Groww's replies are from memory of its documentation and are unverified. Paper and assist mode use the same price calls with no money at risk, so a wrong name shows up there first. Do not go live on Groww until paper mode has run cleanly for days.
+- The automatic strategy choice needs about 8 months of 5-minute candles. If Groww's API gives less history than that, the bot says so and you must name a strategy with `--strategy`.
+- On Python 3.13 `pip install growwapi` can fail while building one of its dependencies. Python 3.11 or 3.12 avoids this.
+- Groww may also require a registered static IP for API orders; check its API settings page.
 
 ### Before going live
 
@@ -196,6 +212,7 @@ tradebot/
     engine.py      strategy -> risk manager -> broker, same order of decisions as the backtester
     broker.py      PaperBroker (simulated fills) and KiteBroker (real orders)
     kite.py        Zerodha session and price polling
+    groww.py       Groww Trade API, wrapped to look like Zerodha's client
     history.py     candle history download
     runner.py      replay loop and the live loop
     store.py       SQLite database
