@@ -15,7 +15,7 @@ Python 3.10 or newer.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q          # 94 tests, should all pass
+python -m pytest -q          # 122 tests, should all pass
 ```
 
 ## Try it in two minutes (no broker account needed)
@@ -43,6 +43,31 @@ python scripts/run_backtest.py --data data/nse --walk-forward
 The watchlist is `DEFAULT_WATCHLIST` in `tradebot/config.py`. Pass `--symbols` to override it.
 
 The two Kite scripts follow the `kiteconnect` library's documented calls but could not be run against the live API while building this, so expect to fix a small thing or two on first use.
+
+## Telegram assistant
+
+Message your bot on Telegram and it shows a menu. Pick one and it tells you when to buy and sell. It never places an order; you do that in your own app.
+
+```bash
+python scripts/run_telegram.py
+```
+
+| Menu option | What happens |
+|---|---|
+| **Swing trading** | Scans about 47 large stocks on daily candles now, then every weekday at 16:15. Sends what to buy and sell next morning, with the stop-loss and target to set as a GTT. Free prices from Yahoo Finance; no Zerodha API needed. |
+| **Intraday equity** | Starts the assist mode described below. Needs the paid Kite Connect plan and the morning `kite_login.py`. Without them it replies with the steps to set it up. |
+| **Options buying** | Checks one index lot against your capital and risk limit. Under about Rs 3 lakh it replies "blocked" with the numbers. Above that it says the strategy is not built yet. |
+| **Futures & options selling** | Checks the exchange margin. Under about Rs 3.5 lakh it replies "not possible" with the numbers. Above that it says the strategy is not built yet. |
+
+Also: **Status**, **Stop alerts**, and `/skip SYMBOL` if you did not take a swing trade.
+
+Setup: create the bot and chat id as in "Telegram alerts" below, put them in `.env`, and set `TRADE_CAPITAL` to the rupees you trade with (default 20000). Only your chat id is answered. Keep the script running: on the laptop, or on any small always-on server (copy the folder, `pip install -r requirements.txt`, run the same command).
+
+**How swing mode decides.** Three long-only strategies (`breakout`, `pullback`, `oversold_bounce`) are walk-forward tested once a week on three years of daily candles, with delivery charges. One is used only if it made money on unseen data; otherwise the bot sends no buys. Defaults: 1% of capital at risk per trade, at most 3 positions, each at most 30% of capital, sold after 15 trading days if neither stop nor target is hit. The bot assumes you take each buy at the next open.
+
+Try it without Telegram or internet: `python scripts/swing_scan.py --demo`.
+
+Not yet run against the real Telegram or Yahoo servers; both were tested against stand-ins. Yahoo's price address is unofficial and can stop working. The F&O figures (lot size 65, premium near Rs 150, margin near Rs 1.75 lakh) are rough and change; edit them in `tradebot/bot/telegram_bot.py`.
 
 ## Run the bot
 
@@ -160,7 +185,14 @@ tradebot/
   walkforward.py   unseen-data validation and the verdict
   select.py        picks the strategy to trade, or none
   strategies/      orb, vwap_pullback, ema_trend, rsi_reversion, supertrend
+  swing/
+    book.py        swing rules, shared by the backtest and the daily scan
+    strategies.py  breakout, pullback, oversold_bounce (daily candles, long only)
+    service.py     the daily scan and its message
+    data.py        daily prices from Yahoo Finance
+    config.py      swing risk limits, delivery charges, stock list
   bot/
+    telegram_bot.py  the Telegram menu
     engine.py      strategy -> risk manager -> broker, same order of decisions as the backtester
     broker.py      PaperBroker (simulated fills) and KiteBroker (real orders)
     kite.py        Zerodha session and price polling
@@ -184,5 +216,6 @@ Subclass `Strategy` in `tradebot/strategies/`, implement `signals(df)`, set `par
 3. **Live trading**: real orders with exchange-side stop losses, behind an explicit switch. Built, not yet run against Zerodha.
 4. **Dashboard and Telegram alerts**. Built.
 5. **Automatic strategy choice**: weekly walk-forward test, trades the winner or nothing. Built.
-6. **Still to do**: the first run on real Zerodha candles, which shows whether any strategy passes.
-7. **Later**: market-regime switching, F&O.
+6. **Assist mode and Telegram menu**: swing and intraday advice, you place the orders. Built.
+7. **Still to do**: the first runs on real prices, which show whether any strategy passes.
+8. **Later**: options and futures strategies (blocked below the capital they need), market-regime switching.

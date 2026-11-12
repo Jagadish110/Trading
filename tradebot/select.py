@@ -68,15 +68,17 @@ class Selection:
 def choose(data: dict[str, pd.DataFrame], risk: RiskConfig | None = None,
            costs: CostConfig | None = None, allow_short: bool = True,
            train_days: int = 120, test_days: int = 40, registry: dict | None = None,
-           today: date | None = None, progress=None) -> Selection:
+           today: date | None = None, progress=None, backtester=None,
+           fold_min_trades: int = 30, pass_min_trades: int = 100) -> Selection:
+    """`backtester` lets another engine (the swing one) be judged the same way."""
     registry = registry or REGISTRY
-    bt = Backtester(data, risk=risk, costs=costs, allow_short=allow_short)
+    bt = backtester or Backtester(data, risk=risk, costs=costs, allow_short=allow_short)
     table, candidates = [], []
     for name, cls in registry.items():
         if progress:
             progress(f"testing {name} ...")
-        wf = walk_forward(bt, cls, train_days=train_days, test_days=test_days)
-        label, why = verdict(wf)
+        wf = walk_forward(bt, cls, train_days=train_days, test_days=test_days, min_trades=fold_min_trades)
+        label, why = verdict(wf, min_trades=pass_min_trades)
         m = wf.oos
         if label == "PASS" and wf.next_params is None:
             label, why = "FAIL", "passed overall but lost money over the most recent months"
