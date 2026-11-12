@@ -1,5 +1,6 @@
 """Start the trading bot and its dashboard.
 
+    python scripts/run_bot.py --assist                              # bot tells you, you place the orders
     python scripts/run_bot.py                                       # paper trading, bot picks the strategy
     python scripts/run_bot.py --live                                # REAL orders, real money
     python scripts/run_bot.py --strategy orb --replay data/sample   # demo on saved candles, no broker
@@ -102,6 +103,8 @@ def main() -> None:
     ap.add_argument("--capital", type=float, default=RiskConfig.capital)
     ap.add_argument("--risk-pct", type=float, default=RiskConfig.risk_per_trade_pct)
     ap.add_argument("--no-short", action="store_true", help="long trades only")
+    ap.add_argument("--assist", action="store_true",
+                    help="only tell me when to buy and sell; I place the orders myself")
     ap.add_argument("--live", action="store_true", help="place REAL orders at Zerodha")
     ap.add_argument("--replay", metavar="FOLDER", help="run saved candles instead of live prices")
     ap.add_argument("--pace", type=float, default=0.05, help="replay: seconds per candle (0 = flat out)")
@@ -111,12 +114,14 @@ def main() -> None:
     args = ap.parse_args()
     if args.live and args.replay:
         sys.exit("--live and --replay cannot be combined.")
+    if args.live and args.assist:
+        sys.exit("--live and --assist cannot be combined: in assist mode you place the orders.")
 
     _bootstrap.load_env()
     risk = replace(RiskConfig(), capital=args.capital, risk_per_trade_pct=args.risk_pct)
     costs = CostConfig()
-    cfg = EngineConfig(allow_short=not args.no_short)
-    mode = "replay" if args.replay else "live" if args.live else "paper"
+    cfg = EngineConfig(allow_short=not args.no_short, advise=args.assist)
+    mode = "replay" if args.replay else "live" if args.live else "assist" if args.assist else "paper"
     symbols = args.symbols or DEFAULT_WATCHLIST
     kite = data = None
     if mode == "live" and os.environ.get("LIVE_TRADING", "").lower() != "yes":
@@ -163,7 +168,7 @@ def main() -> None:
         db_path = args.db or _bootstrap.ROOT / "data" / "tradebot.db"
     store = Store(db_path)
     alerts = alerts_mod.NullAlerts() if mode == "replay" else alerts_mod.from_env(
-        os.environ, prefix="" if mode == "live" else "[paper] ")
+        os.environ, prefix={"live": "", "assist": ""}.get(mode, "[paper] "))
 
     if mode == "replay":
         engine = TradingEngine(strategy, PaperBroker(costs), store, risk, costs=costs, cfg=cfg, mode="replay")
@@ -174,7 +179,8 @@ def main() -> None:
         except RuntimeError as e:
             sys.exit(str(e))
         broker = KiteBroker(kite, feed.tick_sizes, log=store.log) if mode == "live" else PaperBroker(costs)
-        engine = TradingEngine(strategy, broker, store, risk, costs=costs, cfg=cfg, alerts=alerts)
+        engine = TradingEngine(strategy, broker, store, risk, costs=costs, cfg=cfg, alerts=alerts,
+                               mode="assist" if mode == "assist" else None)
         engine.restore(ist_now().date())
         runner = LiveRunner(engine, feed, symbols)
         work = runner.run

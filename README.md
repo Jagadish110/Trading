@@ -15,7 +15,7 @@ Python 3.10 or newer.
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q          # 91 tests, should all pass
+python -m pytest -q          # 94 tests, should all pass
 ```
 
 ## Try it in two minutes (no broker account needed)
@@ -52,11 +52,14 @@ One command starts the bot and opens its dashboard in your browser. Stop it with
 # 1. Demo on saved candles. No broker account needed.
 python scripts/run_bot.py --strategy orb --replay data/sample
 
-# 2. Paper trading: live Zerodha prices, simulated orders. Nothing leaves the laptop.
+# 2. Assist: the bot tells you when to buy and sell, you place the orders in your own app.
 python scripts/kite_login.py
+python scripts/run_bot.py --assist
+
+# 3. Paper trading: live Zerodha prices, simulated orders. Nothing leaves the laptop.
 python scripts/run_bot.py
 
-# 3. Real money. Read "Before going live" first.
+# 4. Real money. Read "Before going live" first.
 python scripts/run_bot.py --live
 ```
 
@@ -65,6 +68,8 @@ python scripts/run_bot.py --live
 **If no strategy passes, the bot does not trade.** That is the system working: it means none of the five rules has an edge on recent data, and trading anyway would only pay costs. On the fake sample data this is always the outcome. A pass is a reason to paper trade, not a promise of profit.
 
 To override the choice, name a strategy: `--strategy orb --param or_minutes=30 --param rr=3`. Other options: `--choose-again`, `--symbols`, `--capital`, `--risk-pct`, `--no-short`, `--port`.
+
+**Assist mode.** The bot never places an order. A "What to do" box at the top of the dashboard (and Telegram, if set up) gives each instruction in full: what to buy or sell, how many shares, the stop-loss order to place straight after, the target, and the rupees at risk. Later it tells you when to exit and why. You place the orders yourself in Kite, Groww or any other app. The bot assumes you took each suggestion; press **I skipped it** if you did not, or **I closed it** if you got out early. It still needs the Zerodha login for live prices. Add `--no-short` if you only want buy-then-sell trades. Preview it without an account: `python scripts/run_bot.py --strategy orb --assist --replay data/sample`.
 
 **How it trades.** A few seconds after each 5-minute candle closes, the bot fetches it, asks the strategy for a signal, passes it through the risk manager and enters at the current price. Between candles it checks the price of open positions every 3 seconds for the target, and squares everything off at 15:15. Paper mode fills orders with the backtester's rules, and a replay reproduces the backtest trade for trade (`tests/test_bot_engine.py`).
 

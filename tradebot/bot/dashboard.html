@@ -59,6 +59,14 @@
   .log time { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
   .log .error { color: var(--down); } .log .warn { color: var(--warn-text); }
   .tall { max-height: 320px; overflow-y: auto; }
+  #todo { display: none; border-color: var(--accent); }
+  #todo.show { display: block; }
+  #todo li { padding: 6px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  #todo li:last-child { border-bottom: 0; }
+  #todo ol { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+  #todo li.new { font-size: 16px; font-weight: 600; }
+  #todo time { color: var(--muted); margin-right: 8px; font-weight: 400; font-size: 13px; }
+  td button { padding: 2px 8px; font-size: 12px; font-weight: 500; margin-left: 4px; }
 </style>
 </head>
 <body>
@@ -74,6 +82,8 @@
     <button id="kill" type="button" class="kill">Close everything</button>
   </header>
   <div id="banner" class="banner" role="status"></div>
+
+  <section class="card" id="todo" aria-live="polite"><h2>What to do</h2><ol id="advice"></ol></section>
 
   <div class="kpis">
     <div class="card kpi"><h2>Today</h2><div id="k-day" class="v">-</div><div id="k-day-s" class="s"></div></div>
@@ -101,7 +111,14 @@ const px = x => Number(x).toLocaleString("en-IN", {minimumFractionDigits: 2, max
 const hm = s => String(s || "").slice(11, 16);
 const REASONS = {stop: "Stop", target: "Target", square_off: "Square-off", signal_exit: "Signal exit",
                  daily_loss: "Loss limit", manual: "Closed by you", data_end: "Data ended"};
-let paused = false;
+let paused = false, lastAdvice = null;
+
+function beep() {
+  try {
+    const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator();
+    o.frequency.value = 880; o.connect(a.destination); o.start(); o.stop(a.currentTime + 0.25);
+  } catch (e) { /* sound is optional */ }
+}
 
 function el(tag, text, cls) {
   const e = document.createElement(tag);
@@ -126,7 +143,25 @@ function table(host, heads, rows, emptyText) {
 
 function render(s) {
   paused = s.status === "paused";
-  $("mode").textContent = s.mode === "live" ? "LIVE: REAL MONEY" : s.mode === "replay" ? "REPLAY" : "PAPER";
+  $("mode").textContent = s.mode === "live" ? "LIVE: REAL MONEY" : s.mode === "assist" ? "ASSIST: YOU PLACE THE ORDERS"
+    : s.mode === "replay" ? "REPLAY" : "PAPER";
+  $("todo").className = "card" + (s.advise ? " show" : "");
+  if (s.advise) {
+    const list = $("advice");
+    list.replaceChildren();
+    if (!s.advice.length) list.append(el("li", "Nothing yet. Wait for a signal; most 5-minute candles give none."));
+    s.advice.forEach((a, i) => {
+      const li = el("li", undefined, i === 0 ? "new" : "");
+      li.append(el("time", a.ts.slice(11, 16)), document.createTextNode(a.text));
+      list.append(li);
+    });
+    const newest = s.advice.length ? s.advice[0].ts + s.advice[0].text : null;
+    if (newest && lastAdvice !== null && newest !== lastAdvice) {
+      beep();
+      document.title = "ACTION: " + s.advice[0].symbol;
+    }
+    lastAdvice = newest || "";
+  }
   $("mode").className = "chip" + (s.mode === "live" ? " live" : "");
   $("status").textContent = s.status[0].toUpperCase() + s.status.slice(1);
   $("status").className = "chip" + (paused ? " paused" : "");
@@ -155,10 +190,25 @@ function render(s) {
   $("k-all-s").textContent = s.totals.trades + " trades, " +
     (s.totals.trades ? Math.round(100 * s.totals.wins / s.totals.trades) : 0) + "% winners";
 
-  table($("positions"), ["Symbol", "Side", "Qty", "Entry", "Last", "Stop", "Target", "Since", "P&L"],
-    s.positions.map(p => [p.symbol, p.side > 0 ? "Long" : "Short", p.qty, px(p.entry_price), px(p.last),
-                          px(p.stop), px(p.target), hm(p.entry_time), money(el("td"), p.pnl)]),
-    "Nothing open.");
+  table($("positions"), ["Symbol", "Side", "Qty", "Entry", "Last", "Stop", "Target", "Since", "P&L"]
+      .concat(s.advise ? [""] : []),
+    s.positions.map(p => {
+      const row = [p.symbol, p.side > 0 ? "Long" : "Short", p.qty, px(p.entry_price), px(p.last),
+                   px(p.stop), px(p.target), hm(p.entry_time), money(el("td"), p.pnl)];
+      if (s.advise) {
+        const td = el("td");
+        [["I skipped it", "/api/skip"], ["I closed it", "/api/close"]].forEach(([label, path]) => {
+          const b = el("button", label);
+          b.type = "button";
+          b.addEventListener("click", async () =>
+            render(await call(path + "?symbol=" + encodeURIComponent(p.symbol), "POST")));
+          td.append(b);
+        });
+        row.push(td);
+      }
+      return row;
+    }),
+    s.advise ? "Nothing open. The bot assumes you take each suggestion unless you press \"I skipped it\"." : "Nothing open.");
   table($("trades"), ["Symbol", "Side", "Qty", "In", "Entry", "Out", "Exit", "Why", "Costs", "Net"],
     s.trades.map(t => [t.symbol, t.side > 0 ? "Long" : "Short", t.qty, hm(t.entry_time), px(t.entry_price),
                        hm(t.exit_time), px(t.exit_price), REASONS[t.reason] || t.reason,
@@ -194,6 +244,7 @@ $("kill").addEventListener("click", async () => {
   if (confirm("Close every open position now and stop opening new ones?"))
     render(await call("/api/kill", "POST"));
 });
+window.addEventListener("focus", () => { document.title = "Tradebot"; });
 refresh();
 setInterval(refresh, 2000);
 </script>

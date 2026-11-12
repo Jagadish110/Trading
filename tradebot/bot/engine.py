@@ -40,6 +40,7 @@ class EngineConfig:
     history_bars: int = 1500            # candles kept per symbol for the indicators (about 20 days)
     flatten_on_daily_loss: bool = True  # close everything when the daily loss limit is hit
     allow_short: bool = True
+    advise: bool = False                # assist mode: tell the user what to do, they place the orders
 
 
 @dataclass
@@ -79,6 +80,7 @@ class TradingEngine:
 
         self.positions: dict[str, Position] = {}
         self.trades: list[dict] = []                    # closed in this run
+        self.advice: deque = deque(maxlen=20)           # assist mode: latest instructions, newest last
         self.skipped = {"risk_gate": 0, "bad_levels": 0, "too_small": 0, "shorts_off": 0, "rejected": 0}
         self.status = "running"                         # running | paused | stopped
         self.note = ""                                  # why it is paused, shown on the dashboard
@@ -147,6 +149,25 @@ class TradingEngine:
         with self.lock:
             for sym in list(self.positions):
                 self._close(sym, self._last.get(sym, self.positions[sym].entry_price), reason)
+
+    def close_one(self, symbol: str) -> None:
+        """Assist mode: the user says they have closed this position."""
+        with self.lock:
+            if symbol in self.positions:
+                self._close(symbol, self._last.get(symbol, self.positions[symbol].entry_price), "manual")
+
+    def skip(self, symbol: str) -> None:
+        """Assist mode: the user did not take this trade. Forget it, record nothing."""
+        with self.lock:
+            if self.positions.pop(symbol, None) is None:
+                return
+            self.store.delete_position(symbol)
+            self.risk.trades_today = max(0, self.risk.trades_today - 1)
+            self.log("info", f"{symbol}: suggestion skipped by you, not counted")
+
+    def _advise(self, symbol: str, kind: str, text: str) -> None:
+        self.advice.append({"ts": str(self.clock), "symbol": symbol, "kind": kind, "text": text})
+        self.log("trade", text, alert=True)
 
     def kill(self) -> None:
         """The big red button: no new entries, and close everything."""
@@ -291,6 +312,14 @@ class TradingEngine:
         self.positions[symbol] = pos
         self.risk.record_entry()
         self.store.save_position(self.mode, self.strategy.name, pos)
+        if self.cfg.advise:
+            verb, back = ("BUY", "SELL") if side == 1 else ("SELL SHORT", "BUY")
+            self._advise(symbol, "enter",
+                         f"{verb} {fill.qty} {symbol} now as an intraday order, near {price:.2f}. "
+                         f"Straight after, place a stop-loss {back} order at {stop:.2f}. "
+                         f"Take profit at {target:.2f}. If the stop is hit you lose about "
+                         f"Rs {abs(fill.price - stop) * fill.qty:,.0f}.")
+            return
         self.log("trade", f"{'BUY' if side == 1 else 'SELL SHORT'} {symbol} {fill.qty} @ {fill.price:.2f}"
                           f"  stop {stop:.2f}  target {target:.2f}", alert=True)
 
@@ -317,6 +346,21 @@ class TradingEngine:
         self.trades.append(trade)
         self.store.add_trade(self.mode, self.strategy.name, trade)
         self.store.delete_position(symbol)
+        if self.cfg.advise:
+            back = "SELL" if pos.side == 1 else "BUY BACK"
+            why = {"target": "target reached", "square_off": "end of day, close everything",
+                   "signal_exit": "the setup has reversed", "daily_loss": "daily loss limit hit",
+                   "manual": "closed by you", "data_end": "session ended"}.get(reason, reason)
+            if reason == "stop":
+                text = (f"{symbol}: price hit the stop at {pos.stop:.2f}. Your stop-loss order should have "
+                        f"closed the {pos.qty} shares; check that it did. About {_rupees(net)}.")
+            elif reason == "manual":
+                text = f"{symbol}: marked closed by you near {price:.2f}. About {_rupees(net)}."
+            else:
+                text = (f"{back} {pos.qty} {symbol} now, near {price:.2f}: {why}. "
+                        f"Then cancel its stop-loss order. About {_rupees(net)}.")
+            self._advise(symbol, "exit", text)
+            return
         self.log("trade", f"CLOSED {symbol} {pos.qty} @ {price:.2f} ({reason.replace('_', ' ')})  "
                           f"{_rupees(net)}  day {_rupees(self.risk.day_pnl)}", alert=True)
 
@@ -357,6 +401,8 @@ class TradingEngine:
             totals = self.store.totals(self.mode)
             return {
                 "mode": self.mode,
+                "advise": self.cfg.advise,
+                "advice": list(self.advice)[::-1],
                 "strategy": repr(self.strategy),
                 "status": self.status,
                 "note": self.note,

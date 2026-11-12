@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import secrets
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -58,10 +59,15 @@ class Dashboard:
                     return self._json(403, {"error": "forbidden"})
                 actions = {"/api/pause": dash.engine.pause, "/api/resume": dash.engine.resume,
                            "/api/kill": dash.engine.kill}
-                action = actions.get(self.path)
-                if action is None:
+                path, _, query = self.path.partition("?")
+                symbol = dict(urllib.parse.parse_qsl(query)).get("symbol", "")
+                per_symbol = {"/api/close": dash.engine.close_one, "/api/skip": dash.engine.skip}
+                if path in per_symbol and symbol:
+                    per_symbol[path](symbol)
+                elif path in actions and not query:
+                    actions[path]()
+                else:
                     return self._json(404, {"error": "not found"})
-                action()
                 self._json(200, dash.engine.snapshot())
 
         self.server = ThreadingHTTPServer((host, port), Handler)
